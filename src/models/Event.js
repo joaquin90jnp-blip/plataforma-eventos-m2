@@ -52,6 +52,9 @@ const eventSchema = new mongoose.Schema(
   },
 );
 
+// GET /api/events ordena por fecha: el índice evita el sort en memoria.
+eventSchema.index({ date: 1 });
+
 /**
  * Representación pública de un evento (sin datos internos de Mongoose).
  */

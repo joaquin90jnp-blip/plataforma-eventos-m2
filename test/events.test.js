@@ -7,7 +7,7 @@ import {
   clearDatabase,
   startTestDB,
   stopTestDB,
-} from "./support/mongo.js";
+} from "../test-utils/mongo.js";
 
 const validEvent = {
   title: "Conferencia de backend",
@@ -83,6 +83,11 @@ describe("Modelo Event", () => {
     }).validateSync();
     assert.ok(errors.title);
   });
+
+  it("define un índice por fecha para el listado", () => {
+    const indexes = Event.schema.indexes().map(([fields]) => fields);
+    assert.ok(indexes.some((fields) => fields.date === 1));
+  });
 });
 
 describe("GET /api/events", () => {
@@ -120,5 +125,38 @@ describe("GET /api/events", () => {
 
     assert.equal(res.status, 200);
     assert.deepEqual(res.body, { status: "success", payload: [] });
+  });
+
+  it("pagina con limit y offset", async () => {
+    await Event.create([
+      { ...validEvent, title: "Primero", date: new Date("2026-11-01") },
+      { ...validEvent, title: "Segundo", date: new Date("2026-11-02") },
+      { ...validEvent, title: "Tercero", date: new Date("2026-11-03") },
+    ]);
+
+    const first = await request(app).get("/api/events?limit=2&offset=0");
+    assert.equal(first.status, 200);
+    assert.deepEqual(
+      first.body.payload.map((event) => event.title),
+      ["Primero", "Segundo"],
+    );
+
+    const second = await request(app).get("/api/events?limit=2&offset=2");
+    assert.equal(second.status, 200);
+    assert.deepEqual(
+      second.body.payload.map((event) => event.title),
+      ["Tercero"],
+    );
+  });
+
+  it("responde 400 con paginación inválida", async () => {
+    for (const query of ["limit=0", "limit=101", "limit=abc", "offset=-1"]) {
+      const res = await request(app).get(`/api/events?${query}`);
+      assert.equal(res.status, 400, query);
+      assert.deepEqual(res.body, {
+        status: "error",
+        message: "Parámetros de paginación inválidos",
+      });
+    }
   });
 });

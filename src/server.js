@@ -1,5 +1,5 @@
 import { env } from "./config/env.js";
-import { connectDB } from "./config/db.js";
+import { connectDB, disconnectDB } from "./config/db.js";
 import app from "./app.js";
 
 try {
@@ -22,9 +22,24 @@ server.on("error", (error) => {
   process.exit(1);
 });
 
+let shuttingDown = false;
+
 function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`${signal} recibido, cerrando servidor...`);
-  server.close(() => process.exit(0));
+
+  const forceExit = setTimeout(() => process.exit(1), 10_000);
+  forceExit.unref();
+
+  server.close(async () => {
+    try {
+      await disconnectDB();
+    } catch (error) {
+      console.error(error);
+    }
+    process.exit(0);
+  });
 }
 
 process.on("SIGINT", () => shutdown("SIGINT"));

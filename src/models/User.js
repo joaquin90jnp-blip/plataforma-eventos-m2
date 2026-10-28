@@ -35,6 +35,13 @@ userSchema.set("toJSON", {
   },
 });
 
+userSchema.set("toObject", {
+  transform(doc, ret) {
+    delete ret.password;
+    return ret;
+  },
+});
+
 /**
  * Representación pública de un usuario: nunca incluye la contraseña.
  */

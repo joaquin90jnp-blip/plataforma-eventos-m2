@@ -11,11 +11,16 @@ const CLIENT_ERROR_MESSAGES = {
   415: "Tipo de contenido no soportado",
 };
 
+function isMongooseInputError(err) {
+  return err?.name === "ValidationError" || err?.name === "CastError";
+}
+
 export function errorHandler(err, req, res, next) {
   if (res.headersSent) return next(err);
 
-  const status =
-    Number.isInteger(err.status) && err.status >= 400 && err.status <= 599
+  const status = isMongooseInputError(err)
+    ? 400
+    : Number.isInteger(err.status) && err.status >= 400 && err.status <= 599
       ? err.status
       : 500;
 
@@ -28,6 +33,8 @@ export function errorHandler(err, req, res, next) {
     message = "Error interno del servidor";
   } else if (err.type === "entity.parse.failed") {
     message = "JSON inválido";
+  } else if (isMongooseInputError(err)) {
+    message = "Datos inválidos";
   } else if (err.isOperational === true && err.expose === true) {
     message = err.message;
   } else {

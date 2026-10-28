@@ -6,7 +6,7 @@ import {
   clearDatabase,
   startTestDB,
   stopTestDB,
-} from "./support/mongo.js";
+} from "../test-utils/mongo.js";
 
 let mongo;
 
@@ -32,6 +32,15 @@ describe("API", () => {
   it("no expone el header X-Powered-By", async () => {
     const res = await request(app).get("/api/health");
     assert.equal(res.headers["x-powered-by"], undefined);
+  });
+
+  it("GET /api/health/ready responde 200 con la base conectada", async () => {
+    const res = await request(app).get("/api/health/ready");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, {
+      status: "ok",
+      message: "Base de datos conectada",
+    });
   });
 
   it("GET /api/events responde lista vacía", async () => {

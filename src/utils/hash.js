@@ -23,3 +23,12 @@ export async function verifyPassword(plainPassword, passwordHash) {
   }
   return bcrypt.compare(plainPassword, passwordHash);
 }
+
+/**
+ * bcrypt solo usa los primeros 72 bytes: más allá se trunca en silencio.
+ * @param {string} plainPassword
+ * @returns {boolean}
+ */
+export function isPasswordTooLong(plainPassword) {
+  return bcrypt.truncates(String(plainPassword));
+}

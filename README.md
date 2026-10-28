@@ -14,7 +14,7 @@ cookies, Passport, roles y autorización.
 
 ## Tecnologías
 
-- Node.js 20+ (ESM, `import`/`export`)
+- Node.js 20.19+ (ESM, `import`/`export`)
 - Express 4
 - MongoDB + Mongoose
 - bcryptjs (hash de contraseñas)
@@ -23,7 +23,7 @@ cookies, Passport, roles y autorización.
 
 ## Requisitos
 
-- Node.js 20 o superior
+- Node.js 20.19 o superior
 - npm
 - MongoDB local o una cadena de conexión (por ejemplo, MongoDB Atlas)
 
@@ -70,12 +70,15 @@ npm test
 ```
 
 Cubre salud y eventos (GET desde MongoDB), validación del puerto y de la
-conexión, JSON inválido, registro completo y modelo de eventos. Incluye 44
+conexión, JSON inválido, registro completo y modelo de eventos. Incluye 54
 tests: éxito, normalización de email, campos faltantes, email inválido,
-contraseña corta, email duplicado, rol forzado a `user`, contraseña hasheada en
-la base, respuesta sin datos sensibles y validaciones del modelo `Event`. Los
-tests levantan un MongoDB efímero con `mongodb-memory-server`; no requieren una
-base local.
+contraseña corta o mayor a 72 bytes, email duplicado, rol forzado a `user`,
+contraseña hasheada en la base, respuesta sin datos sensibles, paginación de
+eventos y validaciones de ambos modelos. Los tests levantan un MongoDB efímero
+con `mongodb-memory-server`; no requieren una base local.
+
+El workflow `.github/workflows/tests.yml` corre la suite en cada push y pull
+request.
 
 ## Estructura de carpetas
 
@@ -102,7 +105,7 @@ proyecto-eventos/
 │   │   ├── events.repository.js
 │   │   └── users.repository.js
 │   ├── dao/
-│   │   ├── events.dao.js           # acceso en memoria (provisorio)
+│   │   ├── events.dao.js           # consultas Mongoose con paginación
 │   │   └── users.dao.js            # consultas Mongoose
 │   ├── models/
 │   │   ├── User.js                 # esquema, roles y serialización pública
@@ -117,15 +120,18 @@ proyecto-eventos/
 │       ├── httpError.js            # errores con status y mensaje público
 │       └── validation.js           # email, normalización y mínimos
 ├── test/
-│   ├── support/mongo.js            # MongoDB efímero para tests
 │   ├── app.test.js
 │   ├── db.test.js
 │   ├── env.test.js
 │   ├── errorHandler.test.js
 │   ├── events.test.js
 │   ├── hash.test.js
+│   ├── health.test.js
 │   ├── register.test.js
 │   └── validation.test.js
+├── test-utils/
+│   └── mongo.js                    # MongoDB efímero para tests
+├── .github/workflows/tests.yml     # CI de la suite
 ├── .env.example
 ├── .gitignore
 ├── package.json
@@ -162,7 +168,9 @@ El campo `password` tiene `select: false` y el modelo elimina la contraseña en
 | `status`      | String   | `draft` \| `published` \| `cancelled`; por defecto `draft`     |
 | `organizer`   | ObjectId | Referencia opcional a `User` (quién organiza)                  |
 
-Los eventos se listan ordenados por `date` ascendente. La respuesta usa
+Los eventos se listan ordenados por `date` ascendente, con un índice
+`{ date: 1 }` que evita ordenar en memoria. El listado pagina con `limit`
+(1-100, por defecto 20) y `offset` (por defecto 0). La respuesta usa
 `toPublicEvent`, que expone `id`, `title`, `description`, `date` (ISO 8601),
 `capacity`, `location`, `status` y `organizer` (id o `null`).
 
@@ -207,10 +215,13 @@ controllers/*.controller.js
 routes/*.router.js
 ```
 
-- `config/db.js` valida que `MONGO_URL` exista y expone `connectDB` /
-  `disconnectDB`.
+- `config/db.js` valida que `MONGO_URL` exista, conecta con
+  `serverSelectionTimeoutMS: 5000` (falla rápido si Mongo no responde) y expone
+  `connectDB` / `disconnectDB`.
+- `server.js` desconecta Mongoose durante el cierre ordenado (`SIGINT` /
+  `SIGTERM`), con un límite de 10 segundos.
 - `app.js` no abre conexiones: se puede importar en tests sin base real.
-- Los tests usan `mongodb-memory-server` en `test/support/mongo.js`.
+- Los tests usan `mongodb-memory-server` en `test-utils/mongo.js`.
 - Cambiar de motor implica reescribir solo el DAO y el modelo.
 
 ## Rutas disponibles
@@ -218,6 +229,7 @@ routes/*.router.js
 | Método | Ruta                       | Descripción                        | Respuesta                                        |
 |--------|----------------------------|------------------------------------|--------------------------------------------------|
 | GET    | `/api/health`              | Estado del servidor                | `200 {"status":"ok","message":"Servidor activo"}` |
+| GET    | `/api/health/ready`        | Readiness: conexión a MongoDB      | `200` conectada / `503` sin base                 |
 | GET    | `/api/events`              | Eventos persistidos, por fecha     | `200 {"status":"success","payload":[...]}`        |
 | GET    | `/api/sessions`            | Estructura inicial, sin auth       | `200 {"status":"success","payload":[]}`           |
 | POST   | `/api/sessions/register`   | Registro público de usuario        | `201` con el usuario público                     |
@@ -231,7 +243,7 @@ routes/*.router.js
 | `first_name` | string | Sí          | No puede estar vacío                        |
 | `last_name`  | string | Sí          | No puede estar vacío                        |
 | `email`      | string | Sí          | Formato de email; se normaliza antes de guardar |
-| `password`   | string | Sí          | Mínimo 8 caracteres                        |
+| `password`   | string | Sí          | Entre 8 y 72 bytes                          |
 
 `role` se ignora aunque venga en el body: el registro público siempre crea
 usuarios con rol `user`.
@@ -271,6 +283,8 @@ La respuesta nunca incluye `password`, ni en texto plano ni hasheada.
 | Campos faltantes o vacíos          | 400    | `{"status":"error","message":"Faltan campos obligatorios"}` |
 | Email con formato inválido         | 400    | `{"status":"error","message":"Email inválido"}`          |
 | Contraseña de menos de 8 caracteres| 400    | `{"status":"error","message":"La contraseña debe tener al menos 8 caracteres"}` |
+| Contraseña de más de 72 bytes      | 400    | `{"status":"error","message":"La contraseña no puede superar los 72 bytes"}` |
+| Paginación inválida                | 400    | `{"status":"error","message":"Parámetros de paginación inválidos"}` |
 | Email ya registrado                | 409    | `{"status":"error","message":"El email ya está registrado"}` |
 | Método no permitido                | 405    | `{"status":"error","message":"Método GET no permitido en /api/sessions/register"}` |
 | JSON inválido                      | 400    | `{"status":"error","message":"JSON inválido"}`           |
@@ -282,6 +296,13 @@ Con el servidor y MongoDB activos:
 ```bash
 # Listar eventos persistidos (vacío si la base no tiene eventos)
 curl http://localhost:3000/api/events
+
+# Paginar: primeros 10 y luego los siguientes 10
+curl "http://localhost:3000/api/events?limit=10&offset=0"
+curl "http://localhost:3000/api/events?limit=10&offset=10"
+
+# Readiness: confirma que MongoDB está conectada
+curl http://localhost:3000/api/health/ready
 
 # Registro exitoso
 curl -i -X POST http://localhost:3000/api/sessions/register \
@@ -319,8 +340,10 @@ El documento muestra un valor como
 - La contraseña se hashea con bcrypt (10 rondas) en `utils/hash.js` antes de
   llegar al dao; la base solo guarda el hash.
 - El hash se genera en el service, no en la ruta ni en el modelo.
-- `password` tiene `select: false` y se elimina en `toJSON`; la respuesta usa
-  un presenter explícito.
+- `password` tiene `select: false` y se elimina en `toJSON` y `toObject`; la
+  respuesta usa un presenter explícito.
+- Se rechazan contraseñas de más de 72 bytes para evitar el truncamiento
+  silencioso de bcrypt.
 - El rol del registro público es fijo (`user`); no se acepta desde el body.
 - El email se normaliza y el índice único evita duplicados incluso ante dos
   peticiones simultáneas (se traduce el error `E11000` a 409).

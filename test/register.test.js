@@ -4,11 +4,13 @@ import request from "supertest";
 import app from "../src/app.js";
 import User from "../src/models/User.js";
 import { verifyPassword } from "../src/utils/hash.js";
+import * as usersRepository from "../src/repositories/users.repository.js";
+import { isDuplicateEmailError } from "../src/services/sessions.service.js";
 import {
   clearDatabase,
   startTestDB,
   stopTestDB,
-} from "./support/mongo.js";
+} from "../test-utils/mongo.js";
 
 const validBody = {
   first_name: "Ana",
@@ -141,5 +143,40 @@ describe("POST /api/sessions/register", () => {
 
     assert.equal(res.status, 405);
     assert.equal(res.headers.allow, "POST, HEAD");
+  });
+
+  it("responde 400 con contraseña de más de 72 bytes", async () => {
+    const res = await request(app)
+      .post("/api/sessions/register")
+      .send({ ...validBody, password: "a".repeat(73) });
+
+    assert.equal(res.status, 400);
+    assert.deepEqual(res.body, {
+      status: "error",
+      message: "La contraseña no puede superar los 72 bytes",
+    });
+  });
+
+  it("no expone el password al devolver el usuario creado desde el DAO", async () => {
+    const user = await usersRepository.createUser({
+      first_name: "Ana",
+      last_name: "Pérez",
+      email: "ana@mail.com",
+      password: "$2b$10$hashdeprueba",
+      role: "user",
+    });
+
+    assert.equal("password" in user, false);
+  });
+});
+
+describe("detección de email duplicado", () => {
+  it("reconoce el error E11000 de MongoDB", () => {
+    assert.equal(isDuplicateEmailError({ code: 11000 }), true);
+  });
+
+  it("ignora otros errores", () => {
+    assert.equal(isDuplicateEmailError(new Error("otro")), false);
+    assert.equal(isDuplicateEmailError(null), false);
   });
 });

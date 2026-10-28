@@ -1,5 +1,5 @@
 import * as usersRepository from "../repositories/users.repository.js";
-import { hashPassword } from "../utils/hash.js";
+import { hashPassword, isPasswordTooLong } from "../utils/hash.js";
 import { toPublicUser } from "../models/User.js";
 import { httpError } from "../utils/httpError.js";
 import {
@@ -36,6 +36,10 @@ export async function registerUser(input) {
     );
   }
 
+  if (isPasswordTooLong(password)) {
+    throw httpError(400, "La contraseña no puede superar los 72 bytes");
+  }
+
   const existing = await usersRepository.findByEmail(normalizedEmail);
   if (existing) {
     throw httpError(409, "El email ya está registrado");
@@ -55,9 +59,13 @@ export async function registerUser(input) {
     return toPublicUser(user);
   } catch (error) {
     // Condición de carrera: el índice único de email rechazó el insert.
-    if (error?.code === 11000) {
+    if (isDuplicateEmailError(error)) {
       throw httpError(409, "El email ya está registrado");
     }
     throw error;
   }
+}
+
+export function isDuplicateEmailError(error) {
+  return error?.code === 11000;
 }

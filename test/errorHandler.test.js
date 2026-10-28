@@ -48,4 +48,32 @@ describe("errorHandler", () => {
 
     assert.ok(delegated instanceof Error);
   });
+
+  it("traduce un ValidationError de Mongoose a 400", () => {
+    const res = createResponse();
+    const err = Object.assign(new Error("email inválido"), {
+      name: "ValidationError",
+    });
+    errorHandler(err, {}, res, () => {});
+
+    assert.equal(res.statusCode, 400);
+    assert.deepEqual(res.body, {
+      status: "error",
+      message: "Datos inválidos",
+    });
+  });
+
+  it("traduce un CastError de Mongoose a 400", () => {
+    const res = createResponse();
+    const err = Object.assign(new Error("cast fallido"), {
+      name: "CastError",
+    });
+    errorHandler(err, {}, res, () => {});
+
+    assert.equal(res.statusCode, 400);
+    assert.deepEqual(res.body, {
+      status: "error",
+      message: "Datos inválidos",
+    });
+  });
 });
