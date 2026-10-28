@@ -30,8 +30,8 @@ cookies, Passport, roles y autorización.
 ## Instalación
 
 ```bash
-git clone https://github.com/joaquin90jnp-blip/plataforma-eventos.git
-cd plataforma-eventos
+git clone https://github.com/joaquin90jnp-blip/plataforma-eventos-m2.git
+cd plataforma-eventos-m2
 npm install
 ```
 
